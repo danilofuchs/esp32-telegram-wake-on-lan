@@ -56,17 +56,12 @@ UniversalTelegramBot bot(telegram_bot_token, client);
 int delayBetweenChecks = 1000;
 unsigned long lastTimeChecked;  // last time messages' scan has been done
 
-void setup() {
-  Serial.begin(115200);
-
-  // Set WiFi to station mode and disconnect from an AP if it was Previously
-  // connected
+static void configureWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   delay(100);
 
-  // attempt to connect to Wifi network:
-  Serial.print("Connecting Wifi: ");
+  Serial.print("Connecting WiFi: ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
 
@@ -79,85 +74,64 @@ void setup() {
   Serial.println("WiFi connected");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-
-  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
-
-  // longPoll keeps the request to Telegram open for the given amount of seconds
-  // if there are no messages This hugely improves response time of the bot, but
-  // is only really suitable for projects where the the initial interaction
-  // comes from Telegram as the requests will block the loop for the length of
-  // the long poll
-  bot.longPoll = 5;
-
-  UDP.begin(9);
 }
 
-// void handleNewMessages(int numNewMessages)
-// {
+static void configureLocalTime() {
+  Serial.println("Retrieving updated UTC time: ");
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");  // get UTC time via NTP
+  time_t now = time(nullptr);
+  while (now < 24 * 3600) {
+    Serial.print(".");
+    delay(100);
+    now = time(nullptr);
+  }
+  Serial.println("");
+  Serial.println("Time updated");
+  Serial.print("Now: ");
+  Serial.println(now);
+}
 
-//   for (int i = 0; i < numNewMessages; i++)
-//   {
+static void configureTelegramBot() {
+  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
 
-//     // If the type is a "callback_query", a inline keyboard button was
-//     pressed if (bot.messages[i].type == F("callback_query"))
-//     {
-//       String text = bot.messages[i].text;
-//       Serial.print("Call back button pressed with text: ");
-//       Serial.println(text);
+  bot.longPoll = 5;
 
-//       if (text.startsWith("WOL"))
-//       {
-//         text.replace("WOL", "");
-//         int index = text.toInt();
-//         Serial.print("Sending WOL to: ");
-//         Serial.println(devices[index].deviceName);
-//         WakeOnLan::sendWOL(computer_ip, UDP, devices[index].mac, sizeof
-//         devices[index].mac);
-//       }
-//     }
-//     else
-//     {
-//       String chat_id = String(bot.messages[i].chat_id);
-//       String text = bot.messages[i].text;
+  const String commands =
+      F("["
+        "{\"command\":\"help\",  \"description\":\"Get bot usage help\"},"
+        "{\"command\":\"start\", \"description\":\"Message sent when you open "
+        "a chat with a bot\"},"
+        "{\"command\":\"wol\",\"description\":\"Wake on Lan\"}"
+        "]");
+  bot.setMyCommands(commands);
+}
 
-//       if (text == F("/wol"))
-//       {
+enum MessageType {
+  start,
+  help,
+  wol_requested,
+  wol_target_selected,
+  unknown,
+};
 
-//         // Keyboard Json is an array of arrays.
-//         // The size of the main array is how many row options the keyboard
-//         has
-//         // The size of the sub arrays is how many columns that row has
+static MessageType parseMessageType(telegramMessage message) {
+  if (message.type == F("callback_query")) {
+    return wol_target_selected;
+  } else if (message.text == F("/wol")) {
+    return wol_requested;
+  } else if (message.text == F("/start")) {
+    return start;
+  }
+  return unknown;
+}
 
-//         // "The Text" property is what shows up in the keyboard
-//         // The "callback_data" property is the text that gets sent when
-//         pressed String keyboardJson = "["; for (int i = 0; i < numDevices;
-//         i++)
-//         {
-//           keyboardJson += "[{ \"text\" : \"" + devices[i].deviceName + "\",
-//           \"callback_data\" : \"WOL" + String(i) + "\" }]"; if (i + 1 <
-//           numDevices)
-//           {
-//             keyboardJson += ",";
-//           }
-//         }
-//         keyboardJson += "]";
-//         bot.sendMessageWithInlineKeyboard(chat_id, "Send WOL to following
-//         devices:", "", keyboardJson);
-//       }
+static void handleStart(telegramMessage message) {
+  String chat_id = String(message.chat_id);
+  bot.sendMessage(chat_id, "/wol : returns list of devices to send WOL to\n",
+                  "Markdown");
+}
 
-//       // When a user first uses a bot they will send a "/start" command
-//       // So this is a good place to let the users know what commands are
-//       available if (text == F("/start"))
-//       {
-
-//         bot.sendMessage(chat_id, "/wol : returns list of devices to send WOL
-//         to\n", "Markdown");
-//       }
-//     }
-//   }
-// }
-
-void handleMessage(telegramMessage message) {
+static void handleMessage(telegramMessage message) {
   Serial.println(message.text);
   // switch (parseMessageType(message)) {
   //   case start:
@@ -175,10 +149,20 @@ void handleMessage(telegramMessage message) {
   // }
 }
 
-void handleNewMessages(int numNewMessages) {
+static void handleNewMessages(int numNewMessages) {
   for (int i = 0; i < numNewMessages; i++) {
     handleMessage(bot.messages[i]);
   }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  configureWiFi();
+  configureLocalTime();
+  configureTelegramBot();
+
+  UDP.begin(9);
 }
 
 void loop() {
