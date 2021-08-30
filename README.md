@@ -10,3 +10,8 @@ Uses PlatformIO in VSCode to build and upload.
 
 This program was tested on the NodeMCU ESP32-S module, but should work on any ESP32.
 Just make sure you choose the correct libraries on PlatformIO before compiling.
+
+## Setup
+
+You may need to install drivers for the ESP32. Mine uses a CP210x USB-to-UART bridge.
+You can find the drivers here: https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers
