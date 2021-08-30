@@ -53,8 +53,8 @@ void sendWOL();
 WiFiClientSecure client;
 UniversalTelegramBot bot(telegram_bot_token, client);
 
-int delayBetweenChecks = 1000;
-unsigned long lastTimeChecked;  // last time messages' scan has been done
+int delay_between_checks = 1000;
+unsigned long last_time_checked;  // last time messages' scan has been done
 
 static void configureWiFi() {
   WiFi.mode(WIFI_STA);
@@ -116,41 +116,88 @@ enum MessageType {
 
 static MessageType parseMessageType(telegramMessage message) {
   if (message.type == F("callback_query")) {
-    return wol_target_selected;
-  } else if (message.text == F("/wol")) {
-    return wol_requested;
+    if (message.text.startsWith("/wol")) {
+      return MessageType::wol_target_selected;
+    }
   } else if (message.text == F("/start")) {
-    return start;
+    return MessageType::start;
+  } else if (message.text == F("/help")) {
+    return MessageType::help;
+  } else if (message.text == F("/wol")) {
+    return MessageType::wol_requested;
   }
-  return unknown;
+  return MessageType::unknown;
 }
 
 static void handleStart(telegramMessage message) {
   String chat_id = String(message.chat_id);
-  bot.sendMessage(chat_id, "/wol : returns list of devices to send WOL to\n",
+  bot.sendMessage(chat_id, "Hello there! This is the first time I see you\n",
                   "Markdown");
+}
+
+static void handleHelp(telegramMessage message) {
+  String chat_id = String(message.chat_id);
+  bot.sendMessage(chat_id,
+                  "/start : Say hello!\n"
+                  "/help  : This message\n"
+                  "/wol   : Wake on LAN\n",
+                  "Markdown");
+}
+
+// Sends a prompt to select the target device using an inline keyboard input
+static void handleWolRequested(telegramMessage message) {
+  Serial.println("WOL requested");
+
+  int number_of_devices = sizeof devices / sizeof *devices;
+
+  // Keyboard Json is an array of arrays.
+  // The size of the main array is how many row options the keyboard has
+  // The size of the sub arrays is how many column that row has
+
+  // The "text" property is what shows up in the keyboard
+  // The "callback_data" property is the text that gets sent to us when pressed
+  String json = "[";
+  for (int i = 0; i < number_of_devices; i++) {
+    // clang-format off
+    json += "[{ \"text\" : \"" + devices[i].deviceName + "\", \"callback_data\" : \"/wol " + String(i) + "\" }]";
+    // clang-format on
+    if (i + 1 < number_of_devices) {
+      json += ",";
+    }
+  }
+  json += "]";
+  bot.sendMessageWithInlineKeyboard(message.chat_id,
+                                    "Send WOL to following devices:", "", json);
+}
+
+static void handleWolTargetSelected(telegramMessage message) {
+  Serial.println("WOL target selected");
+  Serial.println(message.text);
 }
 
 static void handleMessage(telegramMessage message) {
   Serial.println(message.text);
-  // switch (parseMessageType(message)) {
-  //   case start:
-  //     handleStart(message);
-  //     break;
-  //   case wol_requested:
-  //     handleWolRequested(message);
-  //     break;
-  //   case wol_target_selected:
-  //     handleWolTargetSelected(message);
-  //     break;
-  //   default:
-  //     Serial.println("Unknown message type");
-  //     break;
-  // }
+  switch (parseMessageType(message)) {
+    case MessageType::start:
+      handleStart(message);
+      break;
+    case MessageType::help:
+      handleHelp(message);
+      break;
+    case MessageType::wol_requested:
+      handleWolRequested(message);
+      break;
+    case MessageType::wol_target_selected:
+      handleWolTargetSelected(message);
+      break;
+    default:
+      Serial.println("Unknown message type");
+      break;
+  }
 }
 
-static void handleNewMessages(int numNewMessages) {
-  for (int i = 0; i < numNewMessages; i++) {
+static void handleNewMessages(int num_new_messages) {
+  for (int i = 0; i < num_new_messages; i++) {
     handleMessage(bot.messages[i]);
   }
 }
@@ -166,16 +213,16 @@ void setup() {
 }
 
 void loop() {
-  if (millis() < lastTimeChecked + delayBetweenChecks) {
+  if (millis() < last_time_checked + delay_between_checks) {
     return;
   }
 
-  int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+  int num_new_messages = bot.getUpdates(bot.last_message_received + 1);
 
-  if (numNewMessages) {
+  if (num_new_messages) {
     Serial.println("Has new messages");
-    handleNewMessages(numNewMessages);
+    handleNewMessages(num_new_messages);
   }
 
-  lastTimeChecked = millis();
+  last_time_checked = millis();
 }
