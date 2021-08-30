@@ -6,32 +6,21 @@
     Send a WOL to a machine triggered from Telegram
     Wake on Lan is a standard for waking computers out of a power
     saving mode.
-    Uses just an ESP8266
-    By Brian Lough
-    YouTube: https://www.youtube.com/brianlough
-    Tindie: https://www.tindie.com/stores/brianlough/
-    Twitter: https://twitter.com/witnessmenow
+
+    Based heavily on:
+    https://github.com/witnessmenow/ESP8266-WOL-From-Telegram
  *******************************************************************/
 
-// ----------------------------
-// Standard Libraries - Already Installed if you have ESP8266 set up
-// ----------------------------
-
+// WiFi dependencies
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiUDP.h>
 
-// ----------------------------
-// Additional Libraries - each one of these will need to be installed.
-// ----------------------------
-
-// #include <WakeOnLan.h>
-// Library for sending the WOL magic packet
-// Needs to be installed from GitHub
-// https://github.com/koenieee/WakeOnLan-ESP8266
-
+// Telegram dependencies
 #include <UniversalTelegramBot.h>
-// #include <ArduinoJson.h>
+
+// WOL dependencies
+#include <WakeOnLan.h>
 
 char ssid[] =
     SECRET_WIFI_SSID;  // Set in secrets.h, use secrets-example.h as a template
@@ -42,10 +31,7 @@ String telegram_bot_token = SECRET_TELEGRAM_BOT_TOKEN;  // Set in secrets.h
 //------- ---------------------- ------
 
 WiFiUDP UDP;
-/**
- * This will brodcast the Magic packet on your entire network range.
- */
-IPAddress computer_ip(255, 255, 255, 255);
+WakeOnLan WOL(UDP);
 
 void sendWOL();
 
@@ -89,6 +75,11 @@ static void configureLocalTime() {
   Serial.println("Time updated");
   Serial.print("Now: ");
   Serial.println(now);
+}
+
+static void configureWakeOnLan() {
+  WOL.setRepeat(3, 100);
+  WOL.calculateBroadcastAddress(WiFi.localIP(), WiFi.subnetMask());
 }
 
 static void configureTelegramBot() {
@@ -159,7 +150,7 @@ static void handleWolRequested(telegramMessage message) {
   String json = "[";
   for (int i = 0; i < number_of_devices; i++) {
     // clang-format off
-    json += "[{ \"text\" : \"" + devices[i].deviceName + "\", \"callback_data\" : \"/wol " + String(i) + "\" }]";
+    json += "[{ \"text\" : \"" + devices[i].name + "\", \"callback_data\" : \"/wol " + String(i) + "\" }]";
     // clang-format on
     if (i + 1 < number_of_devices) {
       json += ",";
@@ -172,7 +163,24 @@ static void handleWolRequested(telegramMessage message) {
 
 static void handleWolTargetSelected(telegramMessage message) {
   Serial.println("WOL target selected");
-  Serial.println(message.text);
+
+  String text = message.text;
+
+  text.replace("/wol ", "");
+  int index = text.toInt();
+
+  int number_of_devices = sizeof devices / sizeof *devices;
+
+  if (index < 0 || index >= number_of_devices) {
+    Serial.println("Invalid device index");
+    return;
+  }
+
+  targetDevice device = devices[index];
+
+  Serial.print("Sending WOL to: ");
+  Serial.println(device.name);
+  WOL.sendMagicPacket(device.mac, sizeof(device.mac));
 }
 
 static void handleMessage(telegramMessage message) {
@@ -207,6 +215,7 @@ void setup() {
 
   configureWiFi();
   configureLocalTime();
+  configureWakeOnLan();
   configureTelegramBot();
 
   UDP.begin(9);
