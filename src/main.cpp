@@ -78,8 +78,15 @@ static void configureLocalTime() {
 }
 
 static void configureWakeOnLan() {
+  UDP.begin(9);
+
   WOL.setRepeat(3, 100);
-  WOL.calculateBroadcastAddress(WiFi.localIP(), WiFi.subnetMask());
+  IPAddress broadcast =
+      WOL.calculateBroadcastAddress(WiFi.localIP(), WiFi.subnetMask());
+
+  Serial.println("");
+  Serial.print("Broadcast address: ");
+  Serial.println(broadcast.toString());
 }
 
 static void configureTelegramBot() {
@@ -221,7 +228,7 @@ void setup() {
   configureWakeOnLan();
   configureTelegramBot();
 
-  UDP.begin(9);
+  Serial.println("==== Listening for Telegram messages ====");
 }
 
 void loop() {
