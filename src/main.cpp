@@ -181,6 +181,10 @@ static void handleWolTargetSelected(telegramMessage message) {
   Serial.print("Sending WOL to: ");
   Serial.println(device.name);
   WOL.sendMagicPacket(device.mac, sizeof(device.mac));
+
+  bot.answerCallbackQuery(message.query_id,
+                          device.name + " is now awake (hopefully)\n",
+                          "Markdown");
 }
 
 static void handleMessage(telegramMessage message) {
