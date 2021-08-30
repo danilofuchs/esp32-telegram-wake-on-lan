@@ -183,8 +183,7 @@ static void handleWolTargetSelected(telegramMessage message) {
   WOL.sendMagicPacket(device.mac, sizeof(device.mac));
 
   bot.answerCallbackQuery(message.query_id,
-                          device.name + " is now awake (hopefully)\n",
-                          "Markdown");
+                          device.name + " is now awake (hopefully)\n");
 }
 
 static void handleMessage(telegramMessage message) {
