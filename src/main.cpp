@@ -22,6 +22,11 @@
 // WOL dependencies
 #include <WakeOnLan.h>
 
+// Ping dependencies
+#include <ESP32Ping.h>
+
+#include <list>
+
 char ssid[] =
     SECRET_WIFI_SSID;  // Set in secrets.h, use secrets-example.h as a template
 char password[] = SECRET_WIFI_PASSWORD;  // Set in secrets.h
@@ -32,8 +37,6 @@ String telegram_bot_token = SECRET_TELEGRAM_BOT_TOKEN;  // Set in secrets.h
 
 WiFiUDP UDP;
 WakeOnLan WOL(UDP);
-
-void sendWOL();
 
 // This is the Wifi client that supports HTTPS
 WiFiClientSecure client;
@@ -99,9 +102,12 @@ static void configureTelegramBot() {
         "{\"command\":\"help\",  \"description\":\"Get bot usage help\"},"
         "{\"command\":\"start\", \"description\":\"Message sent when you open "
         "a chat with a bot\"},"
-        "{\"command\":\"wol\",\"description\":\"Wake on Lan\"}"
+        "{\"command\":\"wol\",\"description\":\"Wake on Lan\"},"
+        "{\"command\":\"ping\",\"description\":\"Ping a host\"}"
         "]");
-  bot.setMyCommands(commands);
+  if (!bot.setMyCommands(commands)) {
+    Serial.println("Failed to set bot commands");
+  }
 }
 
 enum MessageType {
@@ -109,6 +115,8 @@ enum MessageType {
   help,
   wol_requested,
   wol_target_selected,
+  ping_requested,
+  ping_target_selected,
   unknown,
 };
 
@@ -116,6 +124,8 @@ static MessageType parseMessageType(telegramMessage message) {
   if (message.type == F("callback_query")) {
     if (message.text.startsWith("/wol")) {
       return MessageType::wol_target_selected;
+    } else if (message.text.startsWith("/ping")) {
+      return MessageType::ping_target_selected;
     }
   } else if (message.text == F("/start")) {
     return MessageType::start;
@@ -123,14 +133,15 @@ static MessageType parseMessageType(telegramMessage message) {
     return MessageType::help;
   } else if (message.text == F("/wol")) {
     return MessageType::wol_requested;
+  } else if (message.text == F("/ping")) {
+    return MessageType::ping_requested;
   }
   return MessageType::unknown;
 }
 
 static void handleStart(telegramMessage message) {
   String chat_id = String(message.chat_id);
-  bot.sendMessage(chat_id, "Hello there! This is the first time I see you\n",
-                  "Markdown");
+  bot.sendMessage(chat_id, "Hello there! Time to wake some PCs\n", "Markdown");
 }
 
 static void handleHelp(telegramMessage message) {
@@ -138,7 +149,8 @@ static void handleHelp(telegramMessage message) {
   bot.sendMessage(chat_id,
                   "/start : Say hello!\n"
                   "/help  : This message\n"
-                  "/wol   : Wake on LAN\n",
+                  "/wol   : Wake on LAN\n"
+                  "/ping  : Ping a host\n",
                   "Markdown");
 }
 
@@ -164,8 +176,8 @@ static void handleWolRequested(telegramMessage message) {
     }
   }
   json += "]";
-  bot.sendMessageWithInlineKeyboard(message.chat_id,
-                                    "Send WOL to following devices:", "", json);
+  bot.sendMessageWithInlineKeyboard(message.chat_id, "Which device to wake?",
+                                    "", json);
 }
 
 static void handleWolTargetSelected(telegramMessage message) {
@@ -180,6 +192,7 @@ static void handleWolTargetSelected(telegramMessage message) {
 
   if (index < 0 || index >= number_of_devices) {
     Serial.println("Invalid device index");
+    bot.answerCallbackQuery(message.query_id, "❌ Unknown device");
     return;
   }
 
@@ -190,7 +203,77 @@ static void handleWolTargetSelected(telegramMessage message) {
   WOL.sendMagicPacket(device.mac, sizeof(device.mac));
 
   bot.answerCallbackQuery(message.query_id,
-                          device.name + " is now awake (hopefully)\n");
+                          "✅ " + device.name + " is now awake (hopefully)\n");
+}
+
+static void handlePingRequested(telegramMessage message) {
+  Serial.println("Ping requested");
+
+  int number_of_devices = sizeof devices / sizeof *devices;
+
+  // Keyboard Json is an array of arrays.
+  // The size of the main array is how many row options the keyboard has
+  // The size of the sub arrays is how many column that row has
+
+  // The "text" property is what shows up in the keyboard
+  // The "callback_data" property is the text that gets sent to us when pressed
+  std::list<targetDevice> pingableDevices;
+
+  for (int i = 0; i < number_of_devices; i++) {
+    if (devices[i].ip == IPAddress()) {
+      continue;
+    }
+    pingableDevices.push_back(devices[i]);
+  }
+
+  String json = "[";
+  for (int i = 0; i < pingableDevices.size(); i++) {
+    // clang-format off
+    json += "[{ \"text\" : \"" + devices[i].name + "\", \"callback_data\" : \"/ping " + devices[i].ip.toString() + "\" }]";
+    // clang-format on
+    if (i + 1 < pingableDevices.size()) {
+      json += ",";
+    }
+  }
+  json += "]";
+  bot.sendMessageWithInlineKeyboard(message.chat_id, "Which device to Ping?",
+                                    "", json);
+}
+
+static void handlePingTargetSelected(telegramMessage message) {
+  Serial.println("Ping target selected");
+
+  String text = message.text;
+
+  text.replace("/ping ", "");
+  IPAddress ip = IPAddress();
+
+  if (!ip.fromString(text)) {
+    bot.answerCallbackQuery(message.query_id, "❌ Invalid IP address\n");
+    Serial.println("Invalid IP address");
+    return;
+  }
+
+  int number_of_devices = sizeof devices / sizeof *devices;
+
+  for (int i = 0; i < number_of_devices; i++) {
+    if (devices[i].ip == ip) {
+      Serial.print("Pinging: ");
+      Serial.println(devices[i].name);
+      Serial.println(ip.toString());
+      if (Ping.ping(ip)) {
+        bot.answerCallbackQuery(message.query_id,
+                                "✅ " + devices[i].name + " is alive\n");
+      } else {
+        bot.answerCallbackQuery(message.query_id,
+                                "💀 " + devices[i].name + " is dead\n");
+      }
+      return;
+    }
+  }
+
+  bot.answerCallbackQuery(message.query_id, "❌ Unknown device\n");
+  Serial.println("Invalid device index");
 }
 
 static void handleMessage(telegramMessage message) {
@@ -207,6 +290,12 @@ static void handleMessage(telegramMessage message) {
       break;
     case MessageType::wol_target_selected:
       handleWolTargetSelected(message);
+      break;
+    case MessageType::ping_requested:
+      handlePingRequested(message);
+      break;
+    case MessageType::ping_target_selected:
+      handlePingTargetSelected(message);
       break;
     default:
       Serial.println("Unknown message type");
