@@ -13,6 +13,17 @@ Just make sure you choose the correct libraries on PlatformIO before compiling.
 
 ## Setup
 
+First, make sure your target device supports Wake On Lan.
+You may need to enable it in the BIOS and/or your Network Card's Device Manager.
+You may also need to disable Windows Fast Startup.
+
+Check this guide for some troubleshooting: https://www.windowscentral.com/software-apps/windows-11/how-to-enable-wake-on-lan-on-windows-11
+
+You should test it with any generic Wake On Lan app for Android or iOS before
+attempting to automated it with an ESP32.
+
+For pinging, the target computer must have an static IP address.
+
 ### Secrets file
 
 Copy src/secrets.example.h to src/secrets.h and replace the values for:
@@ -20,7 +31,7 @@ Copy src/secrets.example.h to src/secrets.h and replace the values for:
 - Wi-Fi network
 - Telegram Bot
 - Target device MAC address
-- Target device IP address (Optional, for pings)
+- Target device IP address (Optional, for pings, requires static IP)
 
 ### Telegram Bot
 
